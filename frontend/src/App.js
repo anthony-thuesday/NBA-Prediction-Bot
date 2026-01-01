@@ -1,129 +1,128 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
+const HistoryTable = ({ title, data }) => (
+  <div className="history-col">
+    <h4>{title}</h4>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Opp</th>
+          <th>Res</th>
+          <th style={{ textAlign: 'right' }}>Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        {(data || []).length > 0 ? (
+          (data || []).map((g, i) => (
+            <tr key={i}>
+              <td>{g.date}</td>
+              <td className="opp-cell">{g.opponent}</td>
+              <td className={g.wl === 'W' ? 'win' : 'loss'}>{g.wl}</td>
+              <td style={{ textAlign: 'right' }}>{g.score}</td>
+            </tr>
+          ))
+        ) : (
+          <tr><td colSpan="4">Loading 2025-26 Data...</td></tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+);
+
 function App() {
   const [games, setGames] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [selectedGame, setSelectedGame] = useState(null);
+  const [teamHistory, setTeamHistory] = useState({ home: [], away: [] });
 
-  // Dynamic Date Formatting
-  const today = new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  }).format(new Date());
+  const API_BASE = "http://localhost:8000";
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
+  });
 
   useEffect(() => {
-    // Replace with your actual Render URL
-    const API_URL = "https://nbapredictbot3.onrender.com/predict/today";
-
-    const fetchPredictions = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch(API_URL);
-
-        if (!response.ok) {
-          throw new Error("Backend is waking up... Please refresh in 30 seconds.");
-        }
-
-        const data = await response.json();
-        let fetchedGames = data.games || [];
-
-        // SORTING: Organize by the highest certainty (safest bets first)
-        fetchedGames.sort((a, b) => {
-          const probA = Math.max(a.home_win_prob, 1 - a.home_win_prob);
-          const probB = Math.max(b.home_win_prob, 1 - b.home_win_prob);
-          return probB - probA;
-        });
-
-        setGames(fetchedGames);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPredictions();
+    fetch(`${API_BASE}/predict/today`)
+      .then(res => res.json())
+      .then(data => setGames(data.games || []))
+      .catch(err => console.error(err));
   }, []);
+
+  const handleMatchupClick = async (game) => {
+    setSelectedGame(game);
+    setTeamHistory({ home: [], away: [] });
+    try {
+      const [hRes, aRes] = await Promise.all([
+        fetch(`${API_BASE}/team-history/${game.home_id}`),
+        fetch(`${API_BASE}/team-history/${game.away_id}`)
+      ]);
+      const hData = await hRes.json();
+      const aData = await aRes.json();
+      setTeamHistory({ home: hData.history || [], away: aData.history || [] });
+    } catch (err) { console.error(err); }
+  };
 
   return (
     <div className="App">
-      <header>
+      <header className="main-header">
         <h1>🏀 NBA Prediction Center</h1>
         <p className="current-date">{today}</p>
       </header>
 
-      <main className="container">
-        {loading && <div className="loader">Analyzing Season Data...</div>}
+      <div className="games-grid">
+        {games.map((game, i) => {
+          const isHomeFav = game.home_win_prob >= 50;
+          const favoriteName = isHomeFav ? game.home_team : game.away_team;
+          const displayProb = isHomeFav ? game.home_win_prob : (100 - game.home_win_prob).toFixed(1);
 
-        {error && (
-          <div className="error-message">
-            <p><strong>Connection Issue:</strong> {error}</p>
-          </div>
-        )}
+          return (
+            <div key={i} className="game-card" onClick={() => handleMatchupClick(game)}>
+              <div className="card-top">
+                <span className="tbd-badge">{game.game_time}</span>
+                {displayProb > 75 && <span className="conf-badge">HIGH CONFIDENCE</span>}
+              </div>
 
-        {!loading && !error && games.length === 0 && (
-          <div className="no-games">
-            <p>No games scheduled for today.</p>
-          </div>
-        )}
-
-        <div className="games-grid">
-          {games.map((game, index) => {
-            // Determine Favorite and Win Percentage
-            const isHomeFavorite = game.home_win_prob >= 0.5;
-            const favoriteTeam = isHomeFavorite ? game.home_team : game.away_team;
-            const winChance = isHomeFavorite
-              ? (game.home_win_prob * 100)
-              : ((1 - game.home_win_prob) * 100);
-
-            return (
-              <div key={index} className="game-card">
-                {/* Game Header: Time and Confidence Badge */}
-                <div className="card-header">
-                  <div className="game-time-tag">
-                    {game.game_time || "TBD"}
-                  </div>
-                  {winChance > 70 && <div className="confidence-badge">High Confidence</div>}
+              <div className="matchup-row">
+                <div className="team-container">
+                  <span className="team-label">HOME</span>
+                  <img src={`https://cdn.nba.com/logos/nba/${game.home_id}/global/L/logo.svg`} alt="home" />
+                  <h2 className="team-name">{game.home_team}</h2>
                 </div>
-
-                {/* Team Matchup: Home on Left */}
-                <div className="teams">
-                  <div className="team-block">
-                    <span className="team-label">HOME</span>
-                    <span className="team-name">{game.home_team}</span>
-                  </div>
-
-                  <span className="vs">VS</span>
-
-                  <div className="team-block">
-                    <span className="team-label">AWAY</span>
-                    <span className="team-name">{game.away_team}</span>
-                  </div>
-                </div>
-
-                {/* Probability Visuals */}
-                <div className="probability-container">
-                  <div className="probability-bar">
-                    <div
-                      className="fill"
-                      style={{ width: `${(game.home_win_prob * 100)}%` }}
-                    ></div>
-                  </div>
-
-                  <div className="prediction-tag">
-                    <span className="predicted-label">PREDICTED WINNER</span>
-                    <span className="winner-name">{favoriteTeam}</span>
-                    <span className="winner-percent">{winChance.toFixed(1)}% Chance</span>
-                  </div>
+                <div className="vs-divider">VS</div>
+                <div className="team-container">
+                  <span className="team-label">AWAY</span>
+                  <img src={`https://cdn.nba.com/logos/nba/${game.away_id}/global/L/logo.svg`} alt="away" />
+                  <h2 className="team-name">{game.away_team}</h2>
                 </div>
               </div>
-            );
-          })}
+
+              <div className="prob-line">
+                <div className="prob-bg"><div className="prob-fill" style={{ width: `${displayProb}%` }}></div></div>
+              </div>
+
+              <div className="prediction-box">
+                <p className="predict-label">PREDICTED WINNER</p>
+                <h3 className="winner-name">{favoriteName}</h3>
+                <p className="winner-percent">{displayProb}% Chance</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {selectedGame && (
+        <div className="modal-overlay" onClick={() => setSelectedGame(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h2 className="modal-title">Recent Performance</h2>
+            <p className="modal-subtitle">2025-26 REGULAR SEASON</p>
+            <div className="history-split">
+              <HistoryTable title={selectedGame.home_team} data={teamHistory.home} />
+              <HistoryTable title={selectedGame.away_team} data={teamHistory.away} />
+            </div>
+            <button className="close-btn" onClick={() => setSelectedGame(null)}>Close</button>
+          </div>
         </div>
-      </main>
+      )}
     </div>
   );
 }

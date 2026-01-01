@@ -1,61 +1,34 @@
-import os
-import uvicorn
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
-import pytz
-
-# Import the output dataframe from your predictor script
-try:
-    from .predictor import output
-except ImportError:
-    from backend.app.predictor import output
-
-app = FastAPI()
-
-# Enable CORS so your Vercel frontend can access your Render backend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from nba_api.stats.library.parameters import SeasonAll, SeasonTypeAllPlayer
 
 
-@app.get("/")
-def get_predictions():
-    """
-    Converts the predictor output into a JSON format the frontend can understand.
-    Includes the new 'game_time' field.
-    """
-    # orient="records" creates a list of dictionaries
-    raw_data = output.to_dict(orient="records")
-    formatted_games = []
+@app.get("/team-history/{team_id}")
+def get_team_history(team_id: int):
+    # Strictly lock to the 2025-26 Regular Season
+    gamefinder = leaguegamefinder.LeagueGameFinder(
+        team_id_nullable=team_id,
+        season_nullable='2025-26',  # Force current season
+        season_type_nullable='Regular Season',  # Exclude pre-season/playoffs
+        league_id_nullable='00'  # NBA only (excludes G-League)
+    )
+    df = gamefinder.get_data_frames()[0]
 
-    for game in raw_data:
-        formatted_games.append({
-            "home_team": game.get("HOME_TEAM"),
-            "away_team": game.get("AWAY_TEAM"),
-            "home_win_prob": float(game.get("home_win_prob", 0)),
-            # ADDED: This pulls the formatted time from predictor.py
-            "game_time": game.get("game_time", "TBD")
+    # Ensure we are sorting by date to get the most recent games first
+    df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
+    df = df.sort_values('GAME_DATE', ascending=False).head(10)
+
+    history = []
+    for _, row in df.iterrows():
+        # Parsing the opponent from the matchup string (e.g., "LAL @ GSW")
+        matchup = row['MATCHUP']
+        opponent = matchup.split(' vs. ')[-1] if ' vs. ' in matchup else matchup.split(' @ ')[-1]
+
+        # Calculate opponent score
+        opp_score = int(row['PTS'] - row['PLUS_MINUS'])
+
+        history.append({
+            "date": row['GAME_DATE'].strftime('%m/%d'),  # Will now show 12/31, 12/28, etc.
+            "opponent": opponent,
+            "wl": row['WL'],
+            "score": f"{int(row['PTS'])} - {opp_score}"
         })
-
-    return {"games": formatted_games}
-
-
-# This keeps your existing React fetch URL working
-@app.get("/predict/today")
-def predict_today():
-    return get_predictions()
-
-
-if __name__ == "__main__":
-    # Ensure we use the correct US Eastern time for logging or debugging
-    est = pytz.timezone('US/Eastern')
-    today_str = datetime.now(est).strftime('%Y-%m-%d')
-    print(f"Server starting for NBA date: {today_str}")
-
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    return {"history": history}

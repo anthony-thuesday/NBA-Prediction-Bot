@@ -109,7 +109,12 @@ else:
     today_games['HOME_TEAM'] = today_games['HOME_TEAM_ID'].map(team_lookup)
     today_games['AWAY_TEAM'] = today_games['VISITOR_TEAM_ID'].map(team_lookup)
 
-    output = today_games[['HOME_TEAM', 'AWAY_TEAM', 'home_win_prob', 'game_time']]
+    # Adding .copy() ensures 'output' is its own independent object
+    output = today_games[
+        ['HOME_TEAM', 'AWAY_TEAM', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID', 'home_win_prob', 'game_time']].copy()
+
+    # Now this line will run without the warning:
+    output['abs_prob'] = output['home_win_prob'].apply(lambda x: x if x >= 0.5 else 1 - x)
 
     # Sorting: Highest absolute probability first
     output['abs_prob'] = output['home_win_prob'].apply(lambda x: x if x >= 0.5 else 1 - x)
