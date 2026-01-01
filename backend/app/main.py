@@ -6,9 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 try:
     from .predictor import output
 except ImportError:
-    import predictor
-    output = predictor.output
-
+    from backend.app.predictor import output
 app = FastAPI()
 
 app.add_middleware(
