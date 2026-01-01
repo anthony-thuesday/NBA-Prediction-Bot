@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 # IMPORTANT: This line must be active for the data to load!
-from predictor import output
+from .predictor import output
 
 app = FastAPI()
 
