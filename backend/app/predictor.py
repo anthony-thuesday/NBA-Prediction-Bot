@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from nba_api.stats.endpoints import leaguegamefinder, scoreboardv2
+from nba_api.stats.endpoints import leaguegamefinder
+from nba_api.live.nba.endpoints import scoreboard
 from nba_api.stats.static import teams
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -12,7 +13,7 @@ team_lookup = {
     for team in teams.get_teams()
 }
 
-# 2. FETCH SEASON DATA
+# 2. FETCH SEASON DATA (Historical for training)
 print("Fetching season data...")
 games = leaguegamefinder.LeagueGameFinder(
     season_nullable='2024-25',
@@ -67,17 +68,33 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle
 model = LogisticRegression(max_iter=1000)
 model.fit(X_train, y_train)
 
-# 7. PREDICT TODAY'S GAMES
+# 7. PREDICT TODAY'S GAMES (Using Live Scoreboard V3 for stable times)
 print("Fetching today's schedule...")
-today_data = scoreboardv2.ScoreboardV2(
-    game_date=datetime.today().strftime('%m/%d/%Y')
-).get_data_frames()[0]
+sb = scoreboard.ScoreBoard()
+data = sb.get_dict()
+games_list = data.get('scoreboard', {}).get('games', [])
 
-if today_data.empty:
+if not games_list:
     print("No games today.")
-    output = pd.DataFrame(columns=['HOME_TEAM', 'AWAY_TEAM', 'home_win_prob'])
+    output = pd.DataFrame(columns=['HOME_TEAM', 'AWAY_TEAM', 'home_win_prob', 'game_time'])
 else:
-    today_games = today_data[['GAME_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID']]
+    # Build today_games from the Live V3 data
+    rows = []
+    for g in games_list:
+        rows.append({
+            'GAME_ID': g['gameId'],
+            'HOME_TEAM_ID': g['homeTeam']['teamId'],
+            'VISITOR_TEAM_ID': g['awayTeam']['teamId'],
+            'raw_time': g['gameTimeEST']  # e.g. "2024-12-25T19:30:00Z"
+        })
+
+    today_games = pd.DataFrame(rows)
+
+    # 1. Format the game_time to be clean (e.g. "7:30 PM ET")
+    # This remains static even after the game starts
+    today_games['game_time'] = pd.to_datetime(today_games['raw_time']).dt.strftime('%I:%M %p ET')
+
+    # 2. Merge with latest strength (rolling_net) for both teams
     latest_strength = (
         games.sort_values('GAME_DATE')
         .groupby('TEAM_ID')
@@ -90,6 +107,7 @@ else:
         latest_strength, left_on='VISITOR_TEAM_ID', right_on='TEAM_ID', suffixes=('_home', '_away')
     )
 
+    # 3. Setup features for model prediction
     today_games['home_court'] = 1
     today_games['b2b_home'] = 0
     today_games['b2b_away'] = 0
@@ -98,11 +116,16 @@ else:
     today_X = today_games[feature_cols]
     today_games['home_win_prob'] = model.predict_proba(today_X)[:, 1]
 
-    # Map IDs to Names
+    # 4. Map IDs to Team Names
     today_games['HOME_TEAM'] = today_games['HOME_TEAM_ID'].map(team_lookup)
     today_games['AWAY_TEAM'] = today_games['VISITOR_TEAM_ID'].map(team_lookup)
 
-    # FINAL OUTPUT VARIABLE
-    output = today_games[['HOME_TEAM', 'AWAY_TEAM', 'home_win_prob']].sort_values('home_win_prob', ascending=False)
+    # 5. Final Output Cleanup
+    output = today_games[['HOME_TEAM', 'AWAY_TEAM', 'home_win_prob', 'game_time']]
+
+    # Sorting: Highest absolute probability (strongest favorites) first
+    output['abs_prob'] = output['home_win_prob'].apply(lambda x: x if x >= 0.5 else 1 - x)
+    output = output.sort_values('abs_prob', ascending=False).drop(columns=['abs_prob'])
+
     print("Predictions ready!")
     print(output)

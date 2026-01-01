@@ -2,13 +2,20 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 
 function App() {
-  // 1. Initialize states
-  const [games, setGames] = useState([]);      // Start with empty array to avoid .map() error
-  const [loading, setLoading] = useState(true); // Show spinner while fetching
-  const [error, setError] = useState(null);    // Track if backend is down
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Dynamic Date Formatting
+  const today = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }).format(new Date());
 
   useEffect(() => {
-    // Replace with your actual Render URL (ensure it ends with /)
+    // Replace with your actual Render URL
     const API_URL = "https://nbapredictbot3.onrender.com/predict/today";
 
     const fetchPredictions = async () => {
@@ -17,20 +24,22 @@ function App() {
         const response = await fetch(API_URL);
 
         if (!response.ok) {
-          throw new Error(`Backend Error: ${response.status}`);
+          throw new Error("Backend is waking up... Please refresh in 30 seconds.");
         }
 
         const data = await response.json();
+        let fetchedGames = data.games || [];
 
-        // Ensure data.games exists before setting state
-        if (data && data.games) {
-          setGames(data.games);
-        } else {
-          setGames([]);
-        }
+        // SORTING: Organize by the highest certainty (safest bets first)
+        fetchedGames.sort((a, b) => {
+          const probA = Math.max(a.home_win_prob, 1 - a.home_win_prob);
+          const probB = Math.max(b.home_win_prob, 1 - b.home_win_prob);
+          return probB - probA;
+        });
+
+        setGames(fetchedGames);
       } catch (err) {
-        console.error("Fetch failed:", err);
-        setError("Could not connect to the NBA Prediction server.");
+        setError(err.message);
       } finally {
         setLoading(false);
       }
@@ -41,39 +50,78 @@ function App() {
 
   return (
     <div className="App">
-      <header className="App-header">
-        <h1>🏀 NBA Win Predictions</h1>
+      <header>
+        <h1>🏀 NBA Prediction Center</h1>
+        <p className="current-date">{today}</p>
       </header>
 
       <main className="container">
-        {loading && <div className="loader">Analyzing season data...</div>}
+        {loading && <div className="loader">Analyzing Season Data...</div>}
 
-        {error && <div className="error-message">{error}</div>}
+        {error && (
+          <div className="error-message">
+            <p><strong>Connection Issue:</strong> {error}</p>
+          </div>
+        )}
 
         {!loading && !error && games.length === 0 && (
-          <p>No games scheduled for today or data is being updated.</p>
+          <div className="no-games">
+            <p>No games scheduled for today.</p>
+          </div>
         )}
 
         <div className="games-grid">
-          {/* Using optional chaining (?.) and empty array fallback as final safety */}
-          {(games || []).map((game, index) => (
-            <div key={index} className="game-card">
-              <div className="teams">
-                <span className="away">{game.away_team}</span>
-                <span className="vs">@</span>
-                <span className="home">{game.home_team}</span>
+          {games.map((game, index) => {
+            // Determine Favorite and Win Percentage
+            const isHomeFavorite = game.home_win_prob >= 0.5;
+            const favoriteTeam = isHomeFavorite ? game.home_team : game.away_team;
+            const winChance = isHomeFavorite
+              ? (game.home_win_prob * 100)
+              : ((1 - game.home_win_prob) * 100);
+
+            return (
+              <div key={index} className="game-card">
+                {/* Game Header: Time and Confidence Badge */}
+                <div className="card-header">
+                  <div className="game-time-tag">
+                    {game.game_time || "TBD"}
+                  </div>
+                  {winChance > 70 && <div className="confidence-badge">High Confidence</div>}
+                </div>
+
+                {/* Team Matchup: Home on Left */}
+                <div className="teams">
+                  <div className="team-block">
+                    <span className="team-label">HOME</span>
+                    <span className="team-name">{game.home_team}</span>
+                  </div>
+
+                  <span className="vs">VS</span>
+
+                  <div className="team-block">
+                    <span className="team-label">AWAY</span>
+                    <span className="team-name">{game.away_team}</span>
+                  </div>
+                </div>
+
+                {/* Probability Visuals */}
+                <div className="probability-container">
+                  <div className="probability-bar">
+                    <div
+                      className="fill"
+                      style={{ width: `${(game.home_win_prob * 100)}%` }}
+                    ></div>
+                  </div>
+
+                  <div className="prediction-tag">
+                    <span className="predicted-label">PREDICTED WINNER</span>
+                    <span className="winner-name">{favoriteTeam}</span>
+                    <span className="winner-percent">{winChance.toFixed(1)}% Chance</span>
+                  </div>
+                </div>
               </div>
-              <div className="probability-bar">
-                <div
-                  className="fill"
-                  style={{ width: `${(game.home_win_prob * 100)}%` }}
-                ></div>
-              </div>
-              <p className="prob-text">
-                Home Win Chance: <strong>{(game.home_win_prob * 100).toFixed(1)}%</strong>
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </main>
     </div>
