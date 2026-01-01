@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse
+
 # IMPORTANT: This line must be active for the data to load!
 from .predictor import output
 
@@ -12,6 +14,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/")
+async def root():
+    # This sends anyone visiting the main URL to your prediction page
+    return RedirectResponse(url="/predict/today")
 
 @app.get("/predict/today")
 def get_predictions():
