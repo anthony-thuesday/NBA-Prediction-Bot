@@ -7,22 +7,18 @@ export default function App() {
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    async function load() {
-      try {
-        setLoading(true);
-        setErr("");
-       const res = await fetch("https://nbapredictbot3.onrender.com/predict/today");
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
-        const data = await res.json();
-        setGames(data.games || []);
-      } catch (e) {
-        setErr(e.message);
-      } finally {
-        setLoading(false);
-      }
+  const fetchData = async () => {
+    try {
+      // Use the Render URL directly
+      const response = await fetch("https://nbapredictbot3.onrender.com/predict/today");
+      const data = await response.json();
+      setGames(data.games);
+    } catch (error) {
+      console.error("Error fetching NBA data:", error);
     }
-    load();
-  }, []);
+  };
+  fetchData();
+}, []);
 
   return (
     <div style={{ maxWidth: 900, margin: "40px auto", fontFamily: "system-ui" }}>
