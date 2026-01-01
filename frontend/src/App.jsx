@@ -11,7 +11,7 @@ export default function App() {
       try {
         setLoading(true);
         setErr("");
-        const res = await fetch("http://127.0.0.1:8000/predict/today");
+       const res = await fetch("https://your-service-name.onrender.com/predict/today");
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         const data = await res.json();
         setGames(data.games || []);
